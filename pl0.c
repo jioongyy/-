@@ -439,13 +439,18 @@ int getsym()
 					{
 						getchdo;
 						/***************************************************************************************/
-						/*此处加入加等减等乘等除等的识别***********************************************************/
+						/*此处加入加等减等乘等除,加加减减等的识别***********************************************************/
 						/***************************************************************************************/
 						if (sym == plus)
 						{
 							if (ch == '=')
 							{
 								sym = plusbecomes;
+								getchdo;
+							}
+							else if (ch == '+')
+							{
+								sym = plustwicefirst;
 								getchdo;
 							}
 							else
@@ -458,6 +463,11 @@ int getsym()
 							if (ch == '=')
 							{
 								sym = minusbecomes;
+								getchdo;
+							}
+							else if (ch == '-')
+							{
+								sym = minustwicefirst;
 								getchdo;
 							}
 							else
@@ -1151,6 +1161,32 @@ int statement(bool* fsys, int* ptx, int lev)
 		statementdo(fsys, ptx, lev);    /* 循环体 */
 		gendo(jmp, 0, cx1); /* 回头重新判断条件 */
 		code[cx2].a = cx;   /* 反填跳出循环的地址，与if类似 */
+	}
+	/*识别变量前的加加减减*/
+	else if (sym == plustwicefirst)
+	{
+		getsymdo;
+		int i = position(id, *ptx);
+		gendo(lod, lev - table[i].level, table[i].adr);
+		gendo(lit, 0, 1);
+		gendo(opr, 0, 2);
+		gendo(sto, lev - table[i].level, table[i].adr);
+		getsymdo;
+	}
+	else if (sym == minustwicefirst)
+	{
+		getsymdo;
+		int i = position(id, *ptx);
+		gendo(lod, lev - table[i].level, table[i].adr);
+		gendo(lit, 0, 1);
+		gendo(opr, 0, 3);
+		gendo(sto, lev - table[i].level, table[i].adr);
+		getsymdo;
+	}
+	else if (sym == qvfan)
+	{
+	gendo(lit, 0, 0);
+	gendo(opr, 0, 9);
 	}
 	else
 	{
