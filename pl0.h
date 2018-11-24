@@ -38,7 +38,7 @@ enum symbol {
     lss,         leq,       gtr,        geq,       lparen,
     rparen,      comma,     semicolon,  period,    becomes,
 	plusbecomes,	minusbecomes,	timesbecomes,	slashbecomes,
-	qvyvsym,	qvfansym,	 addtwicefirstsym,	minustwicefirstsym,
+	qvyv,	qvfan,	 addtwicefirst,	minustwicefirst,
     beginsym,    endsym,    ifsym,      thensym,   whilesym,
     writesym,    readsym,   dosym,      callsym,   constsym,
     varsym,      procsym,	elsesym,	

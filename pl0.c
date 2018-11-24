@@ -131,7 +131,8 @@ void init()
 	ssym['.'] = period;
 	ssym['#'] = neq;
 	ssym[';'] = semicolon;
-
+	ssym['!'] = qvfan;
+	ssym['%'] = qvyv;
 	/* 设置保留字名字,按照字母顺序，便于折半查找 */
 	/*将保留字放在word数组中，第一维的每一个都是一个保留字*/
 	strcpy(&(word[0][0]), "begin");
@@ -697,10 +698,14 @@ int block(int lev, int tx, bool* fsys)
 		memcpy(nxtlev, statbegsys, sizeof(bool)*symnum);
 		nxtlev[ident] = true;
 		testdo(nxtlev, declbegsys, 7);
-	} while (inset(sym, declbegsys));   /* 直到没有声明符号 */
+	} while (inset(sym, declbegsys));   
+	/* 直到没有声明符号，即var,const,procedure等，意味着当前层次下声明的过程变量常量已经结束，开始本层主函数分析 */
 
-	code[table[tx0].adr].a = cx;    /* 开始生成当前过程代码 */
-	table[tx0].adr = cx;            /* 当前过程代码地址 */
+	/* 开始生成当前过程代码，
+	此时已经生成完这一层函数中定义的变量常量和过程的指令，
+	那么cx指向了当前层次主函数该开始的指令位置，所以地址反填*/
+	code[table[tx0].adr].a = cx;    
+	table[tx0].adr = cx;            /* 将当前层次主函数的第一个指令的地址传给名字表中该过程的adr */
 	table[tx0].size = dx;           /* 声明部分中每增加一条声明都会给dx增加1，声明部分已经结束，dx就是当前过程数据的size */
 	cx0 = cx;
 	gendo(inte, 0, dx);             /* 生成分配内存代码 */
@@ -761,7 +766,7 @@ int block(int lev, int tx, bool* fsys)
 */
 void enter(enum object k, int* ptx, int lev, int* pdx)
 {
-	(*ptx)++;
+	(*ptx)++;	//因为每插入一个名字，名字表内的项肯定会+1，所以名字表表尾指针+1
 	strcpy(table[(*ptx)].name, id); /* 全局变量id中已存有当前名字的名字 */
 	table[(*ptx)].kind = k;
 	switch (k)
@@ -777,7 +782,7 @@ void enter(enum object k, int* ptx, int lev, int* pdx)
 	case variable:  /* 变量名字 */
 		table[(*ptx)].level = lev;
 		table[(*ptx)].adr = (*pdx);	//变量的值存在adr对应的相对位置上，不同于const常量直接存值
-		(*pdx)++;	//将这个数（可以看作是地址）+1，依次将变量存在某个地方
+		(*pdx)++;	//这个变量相对于它的静态链地址的偏移地址+1
 		break;
 	case procedur:  /*　过程名字　*/
 		table[(*ptx)].level = lev;
@@ -968,7 +973,7 @@ int statement(bool* fsys, int* ptx, int lev)
 				getsymdo;
 				if (sym == ident)
 				{
-					i = position(id, *ptx); /* 查找要读的变量 */
+					i = position(id, *ptx); /* 名字表查找要读的变量 */
 				}
 				else
 				{
@@ -1101,6 +1106,8 @@ int statement(bool* fsys, int* ptx, int lev)
 		/* 循环调用语句处理函数，直到下一个符号不是语句开始符号或收到end */
 		statementdo(nxtlev, ptx, lev);
 
+		/*此处这个循环由于将后跟符号设置为所有的声明开始符和分号，所以会不断地读取语句
+		直到遇到end则退出循环*/
 		while (inset(sym, statbegsys) || sym == semicolon)
 		{
 			if (sym == semicolon)
@@ -1113,6 +1120,8 @@ int statement(bool* fsys, int* ptx, int lev)
 			}
 			statementdo(nxtlev, ptx, lev);
 		}
+
+
 		if (sym == endsym)
 		{
 			getsymdo;
@@ -1178,6 +1187,8 @@ int expression(bool* fsys, int* ptx, int lev)
 		nxtlev[plus] = true;
 		nxtlev[minus] = true;
 		termdo(nxtlev, ptx, lev);   /* 处理项 */
+		/*term -> factor 在factor处生成指令，将变量或常量放到栈顶，
+		然后term中处理乘除运算，最后在栈顶留下项*/
 	}
 	while (sym==plus || sym==minus)
 	{
@@ -1210,8 +1221,9 @@ int term(bool* fsys, int* ptx, int lev)
 	memcpy(nxtlev, fsys, sizeof(bool)*symnum);
 	nxtlev[times] = true;
 	nxtlev[slash] = true;
+	nxtlev[qvyv] = true;
 	factordo(nxtlev, ptx, lev); /* 处理因子 */
-	while(sym==times || sym==slash)
+	while(sym==times || sym==slash ||sym==qvyv)		//****************加入取余功能
 	{
 		mulop = sym;
 		getsymdo;
@@ -1220,9 +1232,13 @@ int term(bool* fsys, int* ptx, int lev)
 		{
 			gendo(opr, 0, 4);   /* 生成乘法指令 */
 		}
-		else
+		else if(mulop == slash)
 		{
 			gendo(opr, 0, 5);   /* 生成除法指令 */
+		}
+		else if (mulop == qvyv)
+		{
+			gen(opr, 0, 7);		/*生成取余指令*/
 		}
 	}
 	return 0;
@@ -1263,38 +1279,32 @@ int factor(bool* fsys, int* ptx, int lev)
 			}
 			getsymdo;
 		}
-		else
+		else if (sym == number)   /* 因子为数 */
 		{
-			if(sym == number)   /* 因子为数 */
+			if (num > adressmax)
 			{
-				if (num > adressmax)
-				{
-					error(31);
-					num = 0;
-				}
-				gendo(lit, 0, num);
+				error(31);
+				num = 0;
+			}
+			gendo(lit, 0, num);
+			getsymdo;
+		}
+		else if (sym == lparen)  /* 因子为表达式 */
+		{
+			getsymdo;
+			memcpy(nxtlev, fsys, sizeof(bool)*symnum);
+			nxtlev[rparen] = true;
+			expressiondo(nxtlev, ptx, lev);
+			if (sym == rparen)
+			{
 				getsymdo;
 			}
 			else
 			{
-				if (sym == lparen)  /* 因子为表达式 */
-				{
-					getsymdo;
-					memcpy(nxtlev, fsys, sizeof(bool)*symnum);
-					nxtlev[rparen] = true;
-					expressiondo(nxtlev, ptx, lev);
-					if (sym == rparen)
-					{
-						getsymdo;
-					}
-					else
-					{
-						error(22);  /* 缺少右括号 */
-					}
-				}
-				testdo(fsys, facbegsys, 23);    /* 因子后有非法符号 */
+				error(22);  /* 缺少右括号 */
 			}
 		}
+		testdo(fsys, facbegsys, 23);    /* 因子后有非法符号 */
 	}
 	return 0;
 }
@@ -1411,6 +1421,10 @@ void interpret()
 				break;
 			case 6:
 				storestack[topPoint-1] = storestack[topPoint-1]%2;
+				break;
+			case 7:					//增加一个取余指令
+				topPoint--;
+				storestack[topPoint-1] = storestack[topPoint-1]% storestack[topPoint];
 				break;
 			case 8:
 				topPoint--;
